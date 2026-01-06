@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <title>Mard 拼豆專業旗艦版 (221全色號+功能修復)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=10.0, user-scalable=yes">
+    <title>Mard 拼豆旗艦版 (支援雙指縮放)</title>
     <style>
         :root { --primary: #4a90e2; }
         body { font-family: -apple-system, system-ui, sans-serif; background: #f0f2f5; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
@@ -23,7 +23,7 @@
             width: 100%; height: 50vh; overflow: auto; margin-top: 10px; border: 2px solid #333; border-radius: 4px;
             background: #999 url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMUlEQVQ4T2NkYGAQYcAP3MvLyP9MAshggP8fP3IE8qvX7S8X7Y8fE7mXy9HIsYpY6TMBB9oF9fSdyX4AAAAASUVORK5CYII=');
         }
-        canvas { display: block; image-rendering: pixelated; touch-action: none; background: #fff; }
+        canvas { display: block; image-rendering: pixelated; touch-action: auto; background: #fff; }
         .stat-panel { background: white; width: 100%; max-width: 950px; margin-top: 10px; padding: 15px; border-radius: 12px; box-sizing: border-box; }
         .color-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; }
         .color-item { display: flex; flex-direction: column; align-items: center; font-size: 11px; border: 1px solid #eee; padding: 6px; cursor: pointer; border-radius: 6px; background: #fff; }
@@ -42,11 +42,11 @@
             <input type="number" id="gridInput" value="80">
         </div>
         <div class="btn-group">
-            <button class="btn-main" onclick="processImage()">🚀 生成圖紙 (221色識別)</button>
+            <button class="btn-main" onclick="processImage()">🚀 生成圖紙 (221色)</button>
             <button id="drawBtn" class="btn-tool active" onclick="setMode('draw')">✏️ 畫筆</button>
             <button id="smoothBtn" class="btn-tool" onclick="setMode('smooth')">🪄 框選平滑</button>
             <button onclick="currentGrid=[]; draw();" style="background:#666;color:#fff">🗑️ 清空</button>
-            <div id="modeText">當前模式: 畫筆</div>
+            <div id="modeText">當前模式: 畫筆 (單指繪圖/雙指縮放)</div>
             <button class="btn-export" onclick="exportImage()">💾 導出超清圖紙(含清單)</button>
         </div>
     </div>
@@ -55,7 +55,7 @@
 <div id="previewContainer"><canvas id="mainCanvas"></canvas></div>
 
 <div class="stat-panel">
-    <h4 style="margin:0 0 10px 0">📊 實時清單 (點選下方色塊切換畫筆顏色)</h4>
+    <h4 style="margin:0 0 10px 0">📊 實時清單 (點擊切換顏色)</h4>
     <div id="colorStats" class="color-list"></div>
 </div>
 
@@ -104,7 +104,7 @@ function processImage() {
 
 function draw() {
     if(!currentGrid.length) return;
-    config.cellSize = config.cols > 150 ? 16 : (config.cols > 80 ? 24 : 32);
+    config.cellSize = config.cols > 80 ? 24 : 32;
     const stats = {};
     currentGrid.forEach(c => { if(c) stats[c.code] = (stats[c.code]||0)+1; });
     const usedColors = Object.keys(stats).sort();
@@ -130,7 +130,6 @@ function draw() {
         ctx.strokeStyle = "rgba(0,0,0,0.1)"; ctx.strokeRect(px, py, config.cellSize, config.cellSize);
     });
 
-    // 序號 (垂直旋轉邏輯)
     ctx.fillStyle = "#333"; ctx.font = "bold 13px Arial"; ctx.textAlign="center";
     for(let i=0; i<config.cols; i++) {
         ctx.save();
@@ -142,7 +141,6 @@ function draw() {
     ctx.textAlign="right";
     for(let i=0; i<config.rows; i++) ctx.fillText(i+1, config.padding - 12, config.padding + (i+0.5)*config.cellSize + 5);
 
-    // 清單
     const baseY = config.rows * config.cellSize + config.padding + 70;
     ctx.textAlign="left"; ctx.font="bold 20px Arial"; ctx.fillStyle="#000";
     ctx.fillText("Mard 顆數統計:", config.padding, baseY - 20);
@@ -172,18 +170,27 @@ function updateWebStat(stats) {
 
 function getGridPos(e) {
     const rect = canvas.getBoundingClientRect();
-    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const touch = e.touches ? e.touches[0] : e;
+    const cx = touch.clientX - rect.left;
+    const cy = touch.clientY - rect.top;
     const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
     return { x: Math.floor((cx * scaleX - config.padding) / config.cellSize), y: Math.floor((cy * scaleY - config.padding) / config.cellSize) };
 }
 
+// 關鍵縮放邏輯修復
 function handleStart(e) {
-    if(e.touches && e.touches.length > 1) return;
+    // 雙指觸摸：不執行繪圖，允許瀏覽器縮放
+    if(e.touches && e.touches.length > 1) {
+        isDrawing = false;
+        return; 
+    }
     isDrawing = true;
     const pos = getGridPos(e);
     if(config.mode === 'smooth') smoothStart = pos;
     else handleMove(e);
+    
+    // 如果是單指，阻止滾動以便繪圖
+    if(e.cancelable) e.preventDefault();
 }
 
 function handleMove(e) {
@@ -195,11 +202,13 @@ function handleMove(e) {
             draw();
         }
     }
+    if(e.cancelable) e.preventDefault();
 }
 
 function handleEnd(e) {
     if(isDrawing && config.mode === 'smooth' && smoothStart) {
-        const pos = getGridPos(e.changedTouches ? e.changedTouches[0] : e);
+        const touch = e.changedTouches ? e.changedTouches[0] : e;
+        const pos = getGridPos(touch);
         applySmooth(smoothStart.x, smoothStart.y, pos.x, pos.y);
     }
     isDrawing = false; smoothStart = null;
@@ -219,9 +228,8 @@ function applySmooth(x1, y1, x2, y2) {
     draw();
 }
 
-// 綁定事件
-canvas.addEventListener('touchstart', (e)=>{ if(e.touches.length===1){handleStart(e); e.preventDefault();} }, {passive:false});
-canvas.addEventListener('touchmove', (e)=>{ if(e.touches.length===1){handleMove(e); e.preventDefault();} }, {passive:false});
+canvas.addEventListener('touchstart', handleStart, {passive: false});
+canvas.addEventListener('touchmove', handleMove, {passive: false});
 canvas.addEventListener('touchend', handleEnd);
 canvas.onmousedown = handleStart; canvas.onmousemove = handleMove; window.onmouseup = handleEnd;
 
@@ -236,7 +244,7 @@ function setMode(m) {
     config.mode = m;
     document.getElementById('drawBtn').className = m==='draw'?'btn-tool active':'btn-tool';
     document.getElementById('smoothBtn').className = m==='smooth'?'btn-tool active':'btn-tool';
-    document.getElementById('modeText').innerText = "當前模式: " + (m==='draw'?'畫筆 (單點繪製)':'框選平滑 (選中起點和終點)');
+    document.getElementById('modeText').innerText = "模式: " + (m==='draw'?'畫筆 (單指繪圖/雙指縮放)':'框選平滑 (選中起點和終點)');
 }
 function exportImage() {
     const dataURL = canvas.toDataURL('image/png');
