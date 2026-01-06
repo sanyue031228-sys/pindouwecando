@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Mard 拼豆專業旗艦版 (221全色號+功能修復)</title>
+    <style>
+        :root { --primary: #4a90e2; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f0f2f5; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 950px; box-sizing: border-box; }
+        .control-panel { background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 10px; }
+        .input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        input[type="range"] { flex: 1; height: 35px; }
+        input[type="number"] { width: 70px; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+        .btn-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        button { padding: 12px 2px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; }
+        .btn-main { background: var(--primary); color: white; grid-column: span 4; font-size: 16px; margin-bottom: 5px; }
+        .btn-tool { background: #e0e0e0; color: #333; }
+        .btn-tool.active { background: #ff4757; color: white; }
+        #modeText { grid-column: span 4; text-align: center; font-size: 12px; color: #666; margin-top: -5px; }
+        .btn-export { background: #28a745; color: white; grid-column: span 4; margin-top: 5px; }
+        #previewContainer { 
+            width: 100%; height: 50vh; overflow: auto; margin-top: 10px; border: 2px solid #333; border-radius: 4px;
+            background: #999 url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMUlEQVQ4T2NkYGAQYcAP3MvLyP9MAshggP8fP3IE8qvX7S8X7Y8fE7mXy9HIsYpY6TMBB9oF9fSdyX4AAAAASUVORK5CYII=');
+        }
+        canvas { display: block; image-rendering: pixelated; touch-action: none; background: #fff; }
+        .stat-panel { background: white; width: 100%; max-width: 950px; margin-top: 10px; padding: 15px; border-radius: 12px; box-sizing: border-box; }
+        .color-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; }
+        .color-item { display: flex; flex-direction: column; align-items: center; font-size: 11px; border: 1px solid #eee; padding: 6px; cursor: pointer; border-radius: 6px; background: #fff; }
+        .color-item.selected { border: 2px solid var(--primary); background: #eef6ff; }
+        .color-box { width: 24px; height: 24px; border: 1px solid #000; margin-bottom: 3px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <input type="file" id="upload" accept="image/*" style="width:100%; margin-bottom:12px;">
+    <div class="control-panel">
+        <div class="input-row">
+            <span>橫向格數:</span>
+            <input type="range" id="gridSlider" min="10" max="600" value="80">
+            <input type="number" id="gridInput" value="80">
+        </div>
+        <div class="btn-group">
+            <button class="btn-main" onclick="processImage()">🚀 生成圖紙 (221色識別)</button>
+            <button id="drawBtn" class="btn-tool active" onclick="setMode('draw')">✏️ 畫筆</button>
+            <button id="smoothBtn" class="btn-tool" onclick="setMode('smooth')">🪄 框選平滑</button>
+            <button onclick="currentGrid=[]; draw();" style="background:#666;color:#fff">🗑️ 清空</button>
+            <div id="modeText">當前模式: 畫筆</div>
+            <button class="btn-export" onclick="exportImage()">💾 導出超清圖紙(含清單)</button>
+        </div>
+    </div>
+</div>
+
+<div id="previewContainer"><canvas id="mainCanvas"></canvas></div>
+
+<div class="stat-panel">
+    <h4 style="margin:0 0 10px 0">📊 實時清單 (點選下方色塊切換畫筆顏色)</h4>
+    <div id="colorStats" class="color-list"></div>
+</div>
+
+<script>
+const MARD_DATA = {
+    'A':[[255,247,214],[255,242,181],[255,235,153],[255,218,140],[255,211,130],[255,185,95],[255,160,65],[255,133,44],[255,105,35],[255,85,25],[255,65,15],[255,45,5],[255,35,0],[255,15,0],[255,0,0],[255,215,0],[255,185,50],[255,160,90],[255,130,120],[255,100,150],[255,80,180],[255,60,210],[248,228,197],[254,242,152],[253,248,190],[191,153,65]],
+    'B':[[193,235,175],[147,222,118],[100,205,75],[60,185,45],[30,165,25],[15,145,15],[5,120,10],[0,100,5],[0,80,0],[0,60,0],[53,74,45],[32,58,36],[125,195,85],[165,225,100],[215,245,165],[135,185,155],[105,165,135],[75,145,115],[45,125,95],[190,215,195],[115,165,160],[15,55,50],[25,45,25],[205,230,145],[55,130,110],[95,100,45],[190,230,170],[155,210,165],[35,75,125],[215,240,175],[150,210,120],[110,170,95]],
+    'C':[[205,235,255],[165,215,250],[120,195,245],[75,175,235],[35,155,225],[15,130,210],[5,105,190],[0,85,170],[0,65,150],[0,45,130],[55,195,205],[35,165,185],[15,135,165],[5,105,145],[0,85,125],[0,105,175],[0,170,225],[0,145,205],[0,120,185],[45,85,115],[185,215,225],[155,185,215],[195,215,240],[115,165,225],[85,135,215],[45,160,195],[195,210,235],[175,195,225],[45,75,125]],
+    'D':[[215,210,245],[185,175,235],[155,140,225],[125,105,215],[95,70,205],[135,95,185],[115,75,165],[95,55,145],[75,35,125],[35,15,65],[195,155,215],[165,115,195],[155,0,125],[85,25,125],[25,25,135],[215,225,250],[185,205,245],[145,155,225],[185,45,185],[155,15,155],[125,5,125],[65,15,125],[125,115,135],[75,95,195],[55,75,185],[205,195,235]],
+    'E':[[255,225,225],[255,195,205],[255,165,185],[255,135,165],[255,105,145],[255,75,125],[255,45,105],[255,15,85],[215,0,65],[185,0,45],[245,215,215],[225,185,185],[205,155,155],[255,245,215],[255,235,195],[245,185,165],[225,155,135],[205,125,105],[255,185,185],[255,145,145],[255,105,105],[255,65,65],[155,115,115],[235,175,215]],
+    'F':[[255,205,195],[255,175,165],[255,145,135],[255,115,105],[255,85,75],[255,55,45],[255,25,15],[215,15,5],[185,5,0],[155,0,0],[115,35,15],[85,15,5],[255,125,85],[255,95,55],[255,55,25],[255,165,145],[255,135,115],[255,105,85],[255,75,55],[245,195,195],[215,155,155],[185,115,115],[245,135,115],[245,105,95],[235,75,75]],
+    'G':[[255,225,185],[255,205,155],[255,185,125],[255,165,95],[255,145,65],[225,155,25],[185,125,15],[145,95,5],[115,75,0],[95,55,0],[165,145,125],[135,115,95],[105,85,65],[75,55,35],[255,250,225],[235,225,195],[115,85,75],[75,45,35],[155,105,85],[165,75,45],[235,155,105]],
+    'H':[[255,255,255],[245,245,245],[235,235,235],[205,205,205],[175,175,175],[145,145,145],[115,115,115],[85,85,85],[255,250,240],[245,240,230],[235,230,220],[205,200,190],[175,170,160],[145,140,130],[240,245,235],[35,35,35],[15,15,15],[220,220,220],[180,180,180],[140,150,155],[245,250,230],[215,220,210],[125,125,115]],
+};
+const COLORS = [];
+Object.keys(MARD_DATA).forEach(p => MARD_DATA[p].forEach((rgb, i) => COLORS.push({ code: `${p}${i+1}`, rgb })));
+
+let originalImg = null, currentGrid = [], config = { cols: 80, rows: 0, cellSize: 24, padding: 85, mode: 'draw' };
+let selectedColor = COLORS[0], isDrawing = false, smoothStart = null;
+const canvas = document.getElementById('mainCanvas'), ctx = canvas.getContext('2d');
+const slider = document.getElementById('gridSlider'), input = document.getElementById('gridInput');
+
+function getNearest(r, g, b) {
+    let min = Infinity, best = COLORS[0];
+    for (const c of COLORS) {
+        const d = (r-c.rgb[0])**2 + (g-c.rgb[1])**2 + (b-c.rgb[2])**2;
+        if (d < min) { min = d; best = c; }
+    }
+    return best;
+}
+
+function processImage() {
+    if (!originalImg) return;
+    config.cols = parseInt(input.value);
+    config.rows = Math.round((originalImg.height / originalImg.width) * config.cols);
+    const tCan = document.createElement('canvas'); tCan.width = config.cols; tCan.height = config.rows;
+    const tCtx = tCan.getContext('2d'); tCtx.imageSmoothingEnabled = false;
+    tCtx.drawImage(originalImg, 0, 0, config.cols, config.rows);
+    const data = tCtx.getImageData(0, 0, config.cols, config.rows).data;
+    currentGrid = [];
+    for(let i=0; i<data.length; i+=4) {
+        currentGrid.push(data[i+3] < 50 ? null : getNearest(data[i], data[i+1], data[i+2]));
+    }
+    draw();
+}
+
+function draw() {
+    if(!currentGrid.length) return;
+    config.cellSize = config.cols > 150 ? 16 : (config.cols > 80 ? 24 : 32);
+    const stats = {};
+    currentGrid.forEach(c => { if(c) stats[c.code] = (stats[c.code]||0)+1; });
+    const usedColors = Object.keys(stats).sort();
+    const statCols = window.innerWidth > 700 ? 8 : 4;
+    const statHeight = Math.ceil(usedColors.length / statCols) * 45 + 150;
+
+    canvas.width = config.cols * config.cellSize + config.padding * 2;
+    canvas.height = config.rows * config.cellSize + config.padding * 2 + statHeight;
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    currentGrid.forEach((c, i) => {
+        const x = i % config.cols, y = Math.floor(i / config.cols);
+        const px = config.padding + x * config.cellSize, py = config.padding + y * config.cellSize;
+        if(c) {
+            ctx.fillStyle = `rgb(${c.rgb.join(',')})`; ctx.fillRect(px, py, config.cellSize, config.cellSize);
+            if(config.cellSize > 16) {
+                const br = (c.rgb[0]*299 + c.rgb[1]*587 + c.rgb[2]*114)/1000;
+                ctx.fillStyle = br > 125 ? "#000" : "#fff";
+                ctx.font = `bold ${config.cellSize/2.6}px Arial`; ctx.textAlign="center"; ctx.textBaseline="middle";
+                ctx.fillText(c.code, px + config.cellSize/2, py + config.cellSize/2);
+            }
+        }
+        ctx.strokeStyle = "rgba(0,0,0,0.1)"; ctx.strokeRect(px, py, config.cellSize, config.cellSize);
+    });
+
+    // 序號 (垂直旋轉邏輯)
+    ctx.fillStyle = "#333"; ctx.font = "bold 13px Arial"; ctx.textAlign="center";
+    for(let i=0; i<config.cols; i++) {
+        ctx.save();
+        ctx.translate(config.padding + (i+0.5)*config.cellSize, config.padding - 18);
+        if(config.cellSize < 24) ctx.rotate(-Math.PI/2);
+        ctx.fillText(i+1, 0, 0);
+        ctx.restore();
+    }
+    ctx.textAlign="right";
+    for(let i=0; i<config.rows; i++) ctx.fillText(i+1, config.padding - 12, config.padding + (i+0.5)*config.cellSize + 5);
+
+    // 清單
+    const baseY = config.rows * config.cellSize + config.padding + 70;
+    ctx.textAlign="left"; ctx.font="bold 20px Arial"; ctx.fillStyle="#000";
+    ctx.fillText("Mard 顆數統計:", config.padding, baseY - 20);
+    usedColors.forEach((code, idx) => {
+        const r = Math.floor(idx/statCols), cl = idx%statCols;
+        const x = config.padding + cl * (canvas.width / (statCols + 0.5)), y = baseY + 10 + r * 45;
+        const c = COLORS.find(v => v.code === code);
+        ctx.fillStyle = `rgb(${c.rgb.join(',')})`; ctx.fillRect(x, y, 24, 24);
+        ctx.strokeStyle="#000"; ctx.strokeRect(x, y, 24, 24);
+        ctx.fillStyle="#333"; ctx.font="14px Arial"; ctx.fillText(`${code}: ${stats[code]}顆`, x+30, y+18);
+    });
+    updateWebStat(stats);
+}
+
+function updateWebStat(stats) {
+    const container = document.getElementById('colorStats');
+    container.innerHTML = '';
+    Object.keys(stats).sort().forEach(code => {
+        const c = COLORS.find(x => x.code === code);
+        const div = document.createElement('div');
+        div.className = 'color-item' + (selectedColor.code === code ? ' selected' : '');
+        div.innerHTML = `<div class="color-box" style="background:rgb(${c.rgb.join(',')})"></div><b>${code}</b><span>${stats[code]}顆</span>`;
+        div.onclick = () => { selectedColor = c; updateWebStat(stats); };
+        container.appendChild(div);
+    });
+}
+
+function getGridPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+    return { x: Math.floor((cx * scaleX - config.padding) / config.cellSize), y: Math.floor((cy * scaleY - config.padding) / config.cellSize) };
+}
+
+function handleStart(e) {
+    if(e.touches && e.touches.length > 1) return;
+    isDrawing = true;
+    const pos = getGridPos(e);
+    if(config.mode === 'smooth') smoothStart = pos;
+    else handleMove(e);
+}
+
+function handleMove(e) {
+    if(!isDrawing || (e.touches && e.touches.length > 1)) return;
+    const pos = getGridPos(e);
+    if(pos.x>=0 && pos.x<config.cols && pos.y>=0 && pos.y<config.rows) {
+        if(config.mode === 'draw') {
+            currentGrid[pos.y * config.cols + pos.x] = selectedColor;
+            draw();
+        }
+    }
+}
+
+function handleEnd(e) {
+    if(isDrawing && config.mode === 'smooth' && smoothStart) {
+        const pos = getGridPos(e.changedTouches ? e.changedTouches[0] : e);
+        applySmooth(smoothStart.x, smoothStart.y, pos.x, pos.y);
+    }
+    isDrawing = false; smoothStart = null;
+}
+
+function applySmooth(x1, y1, x2, y2) {
+    const minX = Math.max(0, Math.min(x1, x2)), maxX = Math.min(config.cols-1, Math.max(x1, x2));
+    const minY = Math.max(0, Math.min(y1, y2)), maxY = Math.min(config.rows-1, Math.max(y1, y2));
+    const freq = {};
+    for(let y=minY; y<=maxY; y++) for(let x=minX; x<=maxX; x++) {
+        const c = currentGrid[y*config.cols+x];
+        const key = c ? c.code : "EMPTY"; freq[key] = (freq[key]||0)+1;
+    }
+    const topKey = Object.keys(freq).reduce((a,b) => freq[a] > freq[b] ? a : b);
+    const targetClr = topKey === "EMPTY" ? null : COLORS.find(v => v.code === topKey);
+    for(let y=minY; y<=maxY; y++) for(let x=minX; x<=maxX; x++) currentGrid[y*config.cols+x] = targetClr;
+    draw();
+}
+
+// 綁定事件
+canvas.addEventListener('touchstart', (e)=>{ if(e.touches.length===1){handleStart(e); e.preventDefault();} }, {passive:false});
+canvas.addEventListener('touchmove', (e)=>{ if(e.touches.length===1){handleMove(e); e.preventDefault();} }, {passive:false});
+canvas.addEventListener('touchend', handleEnd);
+canvas.onmousedown = handleStart; canvas.onmousemove = handleMove; window.onmouseup = handleEnd;
+
+slider.oninput = () => { input.value = slider.value; processImage(); };
+input.onchange = () => { slider.value = input.value; processImage(); };
+document.getElementById('upload').onchange = (e) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => { originalImg = new Image(); originalImg.onload = processImage; originalImg.src = ev.target.result; };
+    reader.readAsDataURL(e.target.files[0]);
+};
+function setMode(m) {
+    config.mode = m;
+    document.getElementById('drawBtn').className = m==='draw'?'btn-tool active':'btn-tool';
+    document.getElementById('smoothBtn').className = m==='smooth'?'btn-tool active':'btn-tool';
+    document.getElementById('modeText').innerText = "當前模式: " + (m==='draw'?'畫筆 (單點繪製)':'框選平滑 (選中起點和終點)');
+}
+function exportImage() {
+    const dataURL = canvas.toDataURL('image/png');
+    const win = window.open();
+    win.document.write('<html><body style="margin:0;text-align:center;"><img src="' + dataURL + '" style="width:100%;"></body></html>');
+}
+</script>
+</body>
+</html>
